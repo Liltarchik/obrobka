@@ -2,27 +2,40 @@ package com.lab2cegla;
 
 import com.google.gson.Gson;
 import jakarta.servlet.annotation.WebServlet;
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.*;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 
-@WebServlet("/cegla")
+@WebServlet("/cegla") // Залишаємо шлях /cegla
 public class CeglaServlet extends HttpServlet {
+    private final CeglaService service = new CeglaService(); // Використовуємо сервіс цегли
     private final Gson gson = new Gson();
 
+    // GET: Отримати список всієї цегли з JSON файлу
     @Override
-    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        response.setContentType("application/json;charset=UTF-8");
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("application/json;charset=UTF-8");
+        resp.getWriter().write(gson.toJson(service.findAll()));
+    }
 
-        List<Cegla> inventory = new ArrayList<>();
-        // Використовуємо твій клас cegla
-        inventory.add(new Cegla("Цегла силікатна", "М150", "Одинарна", 6.50));
-        inventory.add(new Cegla("Цегла керамічна*/", "М125", "Пустотіла", 8.20));
-        inventory.add(new Cegla("Клінкерна цегла", "М300", "Облицювальна", 15.00));
+    // POST: Створити нову цеглу
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        Cegla newBrick = gson.fromJson(req.getReader(), Cegla.class);
+        service.add(newBrick);
+        resp.setStatus(201); // Created
+    }
 
-        response.getWriter().write(gson.toJson(inventory));
+    // PUT: Оновити існуючу цеглу
+    @Override
+    protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        Cegla updatedBrick = gson.fromJson(req.getReader(), Cegla.class);
+        service.update(updatedBrick);
+    }
+
+    // DELETE: Видалити цеглу за ID (передається як параметр)
+    @Override
+    protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        int id = Integer.parseInt(req.getParameter("id"));
+        service.delete(id);
     }
 }
