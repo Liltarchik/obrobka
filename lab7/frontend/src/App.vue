@@ -5,15 +5,15 @@
     </header>
 
     <main class="main-content">
-      <!-- Form to add a movie -->
+      <!-- Form to add or edit a movie -->
       <section class="add-movie-section">
-        <h2>Додати фільм</h2>
-        <form @submit.prevent="addMovie" class="movie-form">
+        <h2>{{ editingId ? 'Редагувати фільм' : 'Додати фільм' }}</h2>
+        <form @submit.prevent="submitMovie" class="movie-form">
           <div class="form-group">
             <input 
               type="text" 
               id="name" 
-              v-model="newMovie.name" 
+              v-model="movieForm.name" 
               required 
               placeholder="Назва фільму" 
             />
@@ -21,7 +21,7 @@
           <div class="form-group">
             <textarea 
               id="description" 
-              v-model="newMovie.description" 
+              v-model="movieForm.description" 
               required 
               placeholder="Короткий опис"
             ></textarea>
@@ -30,13 +30,18 @@
             <input 
               type="url" 
               id="imageUrl" 
-              v-model="newMovie.imageUrl" 
+              v-model="movieForm.imageUrl" 
               placeholder="URL обкладинки (необов'язково)" 
             />
           </div>
-          <button type="submit" class="btn-primary" :disabled="isSubmitting">
-            {{ isSubmitting ? 'Додавання...' : 'Додати' }}
-          </button>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary" :disabled="isSubmitting">
+              {{ isSubmitting ? 'Збереження...' : (editingId ? 'Зберегти зміни' : 'Додати') }}
+            </button>
+            <button type="button" v-if="editingId" @click="cancelEdit" class="btn-secondary" :disabled="isSubmitting">
+              Скасувати
+            </button>
+          </div>
         </form>
       </section>
 
@@ -57,14 +62,23 @@
         
         <div v-else class="movies-grid">
           <div v-for="movie in movies" :key="movie.id" class="movie-card">
-            <button 
-              @click="deleteMovie(movie.id)" 
-              class="btn-delete" 
-              :disabled="deletingId === movie.id"
-              title="Видалити"
-            >
-              &times;
-            </button>
+            <div class="card-actions">
+              <button 
+                @click="editMovie(movie)" 
+                class="btn-edit" 
+                title="Редагувати"
+              >
+                &#9998;
+              </button>
+              <button 
+                @click="deleteMovie(movie.id)" 
+                class="btn-delete" 
+                :disabled="deletingId === movie.id"
+                title="Видалити"
+              >
+                &times;
+              </button>
+            </div>
             <div class="movie-image">
               <img 
                 :src="movie.imageUrl || placeholderImage" 
@@ -95,8 +109,9 @@ const loading = ref(false);
 const error = ref(null);
 const isSubmitting = ref(false);
 const deletingId = ref(null);
+const editingId = ref(null);
 
-const newMovie = ref({
+const movieForm = ref({
   name: '',
   description: '',
   imageUrl: ''
@@ -108,7 +123,8 @@ const fetchMovies = async () => {
   error.value = null;
   try {
     const response = await axios.get(API_URL);
-    movies.value = response.data.sort((a, b) => b.id - a.id);
+    const fetchedMovies = response.data._embedded?.movies || [];
+    movies.value = fetchedMovies.sort((a, b) => b.id - a.id);
   } catch (err) {
     error.value = 'Помилка завантаження: ' + (err.response?.data?.message || err.message);
     console.error(err);
@@ -117,29 +133,61 @@ const fetchMovies = async () => {
   }
 };
 
-// POST: Додавання фільму
-const addMovie = async () => {
-  if (!newMovie.value.name.trim() || !newMovie.value.description.trim()) return;
+// SUBMIT: Додавання або оновлення фільму
+const submitMovie = async () => {
+  if (!movieForm.value.name.trim() || !movieForm.value.description.trim()) return;
   
   isSubmitting.value = true;
   error.value = null;
   
   try {
     const payload = {
-      name: newMovie.value.name.trim(),
-      description: newMovie.value.description.trim(),
-      imageUrl: newMovie.value.imageUrl.trim() || ''
+      name: movieForm.value.name.trim(),
+      description: movieForm.value.description.trim(),
+      imageUrl: movieForm.value.imageUrl.trim() || ''
     };
     
-    const response = await axios.post(API_URL, payload);
-    movies.value.unshift(response.data);
-    newMovie.value = { name: '', description: '', imageUrl: '' };
+    if (editingId.value) {
+      // PUT request
+      const response = await axios.put(`${API_URL}/${editingId.value}`, payload);
+      const index = movies.value.findIndex(m => m.id === editingId.value);
+      if (index !== -1) {
+        movies.value[index] = response.data;
+      }
+    } else {
+      // POST request
+      const response = await axios.post(API_URL, payload);
+      movies.value.unshift(response.data);
+    }
+    
+    resetForm();
   } catch (err) {
-    error.value = 'Помилка додавання: ' + (err.response?.data?.message || err.message);
+    error.value = 'Помилка збереження: ' + (err.response?.data?.message || err.message);
     console.error(err);
   } finally {
     isSubmitting.value = false;
   }
+};
+
+// Редагування: заповнити форму даними
+const editMovie = (movie) => {
+  editingId.value = movie.id;
+  movieForm.value = {
+    name: movie.name,
+    description: movie.description,
+    imageUrl: movie.imageUrl || ''
+  };
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
+// Скасувати редагування
+const cancelEdit = () => {
+  resetForm();
+};
+
+const resetForm = () => {
+  editingId.value = null;
+  movieForm.value = { name: '', description: '', imageUrl: '' };
 };
 
 // DELETE: Видалення фільму за ID
@@ -152,6 +200,9 @@ const deleteMovie = async (id) => {
   try {
     await axios.delete(`${API_URL}/${id}`);
     movies.value = movies.value.filter(movie => movie.id !== id);
+    if (editingId.value === id) {
+      resetForm();
+    }
   } catch (err) {
     error.value = 'Помилка видалення: ' + (err.response?.data?.message || err.message);
     console.error(err);
@@ -220,7 +271,6 @@ onMounted(() => {
   margin-bottom: 1rem;
 }
 
-/* ВАЖЛИВО: Виправлення кольору тексту в інпутах */
 .form-group input,
 .form-group textarea {
   width: 100%;
@@ -229,7 +279,7 @@ onMounted(() => {
   border-radius: 4px;
   font-size: 1rem;
   background-color: #fff;
-  color: #333; /* Текст тепер темний і добре читається */
+  color: #333;
   box-sizing: border-box;
 }
 
@@ -238,7 +288,6 @@ onMounted(() => {
   min-height: 90px;
 }
 
-/* Світло-сірі плейсхолдери */
 .form-group input::placeholder,
 .form-group textarea::placeholder {
   color: #999;
@@ -250,11 +299,14 @@ onMounted(() => {
   border-color: #888;
 }
 
-/* Проста, плоска кнопка */
-.btn-primary {
+.form-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+/* Кнопки */
+.btn-primary, .btn-secondary {
   padding: 0.8rem 1.5rem;
-  background-color: #444; /* Темно-сірий колір */
-  color: #fff;
   border: none;
   border-radius: 4px;
   font-size: 1rem;
@@ -262,11 +314,25 @@ onMounted(() => {
   transition: background-color 0.2s;
 }
 
+.btn-primary {
+  background-color: #444;
+  color: #fff;
+}
+
 .btn-primary:hover:not(:disabled) {
   background-color: #222;
 }
 
-.btn-primary:disabled {
+.btn-secondary {
+  background-color: #e0e0e0;
+  color: #333;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #ccc;
+}
+
+.btn-primary:disabled, .btn-secondary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -298,7 +364,7 @@ onMounted(() => {
 /* Мінімалістична картка */
 .movie-card {
   position: relative;
-  border: 1px solid #eaeaea; /* Дуже тонка рамка */
+  border: 1px solid #eaeaea;
   border-radius: 4px;
   background: #fff;
   display: flex;
@@ -338,34 +404,52 @@ onMounted(() => {
   line-height: 1.5;
 }
 
-/* Кнопка видалення (хрестик) */
-.btn-delete {
+/* Кнопки дій на картці */
+.card-actions {
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  gap: 5px;
+  z-index: 10;
+}
+
+.btn-delete, .btn-edit {
   width: 26px;
   height: 26px;
-  background-color: #e53935;
   color: white;
   border: none;
   border-radius: 50%;
-  font-size: 18px;
-  line-height: 1;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  z-index: 10;
   transition: background-color 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2); /* Дуже легка тінь, щоб виділялась на фоні картинки */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.btn-delete {
+  background-color: #e53935;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .btn-delete:hover:not(:disabled) {
   background-color: #c62828;
 }
 
-.btn-delete:disabled {
+.btn-edit {
+  background-color: #1e88e5;
+  font-size: 14px;
+}
+
+.btn-edit:hover:not(:disabled) {
+  background-color: #1565c0;
+}
+
+.btn-delete:disabled, .btn-edit:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
